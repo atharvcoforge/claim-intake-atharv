@@ -1,0 +1,91 @@
+name: claims-intake
+
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspaces/claims-intake:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ollama-models:/home/vscode/.ollama
+    command: bash -lc 'bash .devcontainer/ollama-setup.sh serve & exec sleep infinity'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://fde:fdepassword@postgres:5432/fde
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    networks:
+      - claims-intake
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fde
+      POSTGRES_PASSWORD: fdepassword
+      POSTGRES_DB: fde
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fde -d fde"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - claims-intake
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.158.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - claims-intake
+
+  prometheus:
+    image: prom/prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - claims-intake
+
+  grafana:
+    image: grafana/grafana
+    restart: unless-stopped
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - claims-intake
+
+  local-registry:
+    image: registry:3
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    networks:
+      - claims-intake
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  grafana-storage:
+  ollama-models:
+
+networks:
+  claims-intake:
+    driver: bridge

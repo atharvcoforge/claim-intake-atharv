@@ -1,0 +1,23 @@
+{
+  "name": "claims-intake",
+  "dockerComposeFile": "../compose.yaml",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/claims-intake",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "SERVICE_ENV": "local"
+  },
+  "forwardPorts": [8000, 5432, 3000, 4317, 4318, 5000, 9090, 11434],
+  "postCreateCommand": "uv sync --frozen && bash .devcontainer/ollama-setup.sh pull",
+  "postStartCommand": "bash .devcontainer/ollama-setup.sh serve",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}

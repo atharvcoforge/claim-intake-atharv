@@ -328,6 +328,13 @@ record a notification built from data the caller did not send. The
 `field` and `reason` keys in `detail` distinguish those cases for
 operators. Callers branch on `code`, not on `reason`.
 
+`estimated_amount` is checked on its written form. It must arrive as a
+JSON string with exactly two fractional digits. A JSON number is the
+wrong type; a string with any other scale is `INVALID_FIELD_VALUE`. The
+service does not coerce either case onto a two-place decimal, because a
+JSON number has no scale to preserve and a mis-scaled string is not the
+amount the caller sent.
+
 ### 6.2 Validation rules — 409 and 422
 
 The request was interpreted. The content is not admissible, or it

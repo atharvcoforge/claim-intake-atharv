@@ -11,8 +11,10 @@ Day 2 assignment. Implement these against `docs/api-contract.md` sections 2 and 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import (
@@ -29,6 +31,42 @@ ClaimType = Literal["collision", "theft", "glass", "liability", "weather"]
 
 _TWO_PLACE_DECIMAL = re.compile(r"^[0-9]+\.[0-9]{2}$")
 _CLAIM_REFERENCE = re.compile(r"^CLM-\d{4}-\d{6}$")
+
+
+class RuleId(StrEnum):
+    """Identifiers for the rules in contract section 4.2."""
+
+    V1 = "V-1"
+    V2 = "V-2"
+    V3 = "V-3"
+    V4 = "V-4"
+    V5 = "V-5"
+    V6 = "V-6"
+    V7 = "V-7"
+
+
+class ErrorCode(StrEnum):
+    """Stable refusal codes produced by the rules in section 4.2."""
+
+    POLICY_NOT_FOUND = "POLICY_NOT_FOUND"
+    LOSS_BEFORE_INCEPTION = "LOSS_BEFORE_INCEPTION"
+    LOSS_AFTER_EXPIRY = "LOSS_AFTER_EXPIRY"
+    AMOUNT_EXCEEDS_LIMIT = "AMOUNT_EXCEEDS_LIMIT"
+    TYPE_NOT_COVERED = "TYPE_NOT_COVERED"
+    DUPLICATE_NOTIFICATION = "DUPLICATE_NOTIFICATION"
+    POLICY_CANCELLED = "POLICY_CANCELLED"
+
+
+@dataclass(frozen=True)
+class RuleFailure:
+    """A failed rule decision.
+
+    `rule` and `code` are distinct types so a rule identifier cannot be passed
+    where an error code is expected.
+    """
+
+    rule: RuleId
+    code: ErrorCode
 
 
 class NotificationRequest(BaseModel):
@@ -51,8 +89,9 @@ class NotificationRequest(BaseModel):
     @field_validator("loss_date", mode="before")
     @classmethod
     def loss_date_must_be_calendar_date(cls, value: object) -> object:
-        if isinstance(value, datetime):
-            raise ValueError("loss_date must be a calendar date, not a datetime")  # noqa: TRY004
+        # datetime is a date subclass; reject it so comparisons stay calendar-day only.
+        if type(value) is datetime:
+            raise ValueError("loss_date must be a calendar date, not a datetime")
         if isinstance(value, str) and "T" in value:
             raise ValueError("loss_date must be YYYY-MM-DD")
         return value
@@ -66,11 +105,6 @@ class NotificationRequest(BaseModel):
                     "estimated_amount must be greater than zero with exactly two decimal places"
                 )
             return value
-        if isinstance(value, (int, float)):
-            # int includes bool; both are wrong JSON types for this field.
-            raise ValueError(  # noqa: TRY004
-                "estimated_amount must arrive as a string with exactly two decimal places"
-            )
         if isinstance(value, str):
             if not _TWO_PLACE_DECIMAL.fullmatch(value):
                 raise ValueError(
@@ -80,7 +114,10 @@ class NotificationRequest(BaseModel):
             if amount <= 0:
                 raise ValueError("estimated_amount must be greater than zero")
             return amount
-        raise ValueError("estimated_amount must be a two-place decimal string")
+        # JSON numbers (and anything else) have no written scale to preserve.
+        raise ValueError(
+            "estimated_amount must arrive as a string with exactly two decimal places"
+        )
 
 
 class Policy(BaseModel):
@@ -132,7 +169,8 @@ class RecordedNotification(BaseModel):
     @model_validator(mode="after")
     def claim_reference_matches_contract(self) -> RecordedNotification:
         if not _CLAIM_REFERENCE.fullmatch(self.claim_reference):
-            raise ValueError(
-                "claim_reference must match CLM-YYYY-NNNNNN"
-            )
+            raise ValueError("claim_reference must match CLM-YYYY-NNNNNN")
         return self
+
+
+ClaimRecord = RecordedNotification

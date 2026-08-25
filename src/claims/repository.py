@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from claims.models import NotificationRequest, RecordedNotification
+from claims.models import ClaimType, NotificationRequest, RecordedNotification
 
 
 class NotificationRepository:
@@ -48,7 +48,7 @@ class NotificationRepository:
         self,
         policy_number: str,
         loss_date: date,
-        claim_type: str,
+        claim_type: ClaimType,
     ) -> RecordedNotification | None:
         """Return an existing recorded notification matching all three values.
 

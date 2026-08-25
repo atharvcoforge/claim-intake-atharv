@@ -36,3 +36,22 @@ Section 2.3 fixes the claim-type vocabulary and says V-5 evaluates the permitted
 ### Decision 3 — EDGE-12
 
 Section 2.2 requires `estimated_amount` to be a decimal with two decimal places, but it did not say what happens when the value has three, so `3499.999` could be `INVALID_FIELD_VALUE` at `400` or parsed (and perhaps rounded) and then accepted on `MOT-4476`. The service refuses it as `INVALID_FIELD_VALUE` at `400` and does not round, truncate, or otherwise coerce the amount. That follows section 2.2 (two decimal places) and section 2.4 (a field whose value is not the required type is `400`; the caller's code is wrong). The rejected reading is to repair the scale and continue. Rounding `3499.999` to `3500.00` would record a notification built from an amount the caller did not send, which is the same reason section 2.2 rejects unknown fields rather than ignoring them.
+
+## Day 2 reconciliation — model refusals against section 6
+
+Checked every refusal `NotificationRequest` and `Policy` produce against contract section 6.1.
+
+| Model refusal | Section 6.1 code | Status |
+| --- | --- | ---: |
+| Required field absent (EDGE-08) | `MISSING_REQUIRED_FIELD` | 400 |
+| Extra / unknown field | `UNKNOWN_FIELD` | 400 |
+| Empty `policy_number` | `INVALID_FIELD_VALUE` | 400 |
+| `claim_type` outside section 2.3 (EDGE-11) | `INVALID_FIELD_VALUE` | 400 |
+| Wrong-case `claim_type` | `INVALID_FIELD_VALUE` | 400 |
+| `estimated_amount` as JSON number | `INVALID_FIELD_VALUE` | 400 |
+| `estimated_amount` wrong scale / ≤ 0 (EDGE-12) | `INVALID_FIELD_VALUE` | 400 |
+| `loss_date` with time component or `datetime` | `INVALID_FIELD_VALUE` | 400 |
+
+`MALFORMED_JSON` is not a model outcome; it belongs at the HTTP boundary when the body cannot be read as JSON.
+
+Nothing was missing from section 6. No codes or statuses were added. How checked: enumerated the validators and `extra="forbid"` / `Field(min_length=1)` / `ClaimType` constraints in `src/claims/models.py`, mapped each to section 6.1, and confirmed the closed set in 6.5 already names every code those refusals become.

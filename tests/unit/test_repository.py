@@ -10,6 +10,8 @@ import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import pytest
+
 from claims.models import ClaimType, NotificationRequest
 from claims.repository import NotificationRepository
 
@@ -51,27 +53,43 @@ def test_wi0151_ac1_matching_triple_returns_the_recorded_notification(
     assert found.claim_type == "collision"
 
 
-def test_wi0151_ac3_unrecorded_submission_is_not_found(
+def test_wi0151_ac3_rejected_notification_is_not_a_duplicate(
     repository: NotificationRepository,
 ) -> None:
-    # A refused submission is never written, so there is nothing to duplicate.
-    found = repository.find_matching(
-        policy_number="MOT-4471",
-        loss_date=date(2026, 4, 2),
-        claim_type="collision",
+    # A refusal never calls record(). Resubmitting the same triple finds nothing
+    # to match, so V-6 cannot treat the earlier refusal as a duplicate.
+    rejected = _notification()
+
+    assert (
+        repository.find_matching(
+            policy_number=rejected.policy_number,
+            loss_date=rejected.loss_date,
+            claim_type=rejected.claim_type,
+        )
+        is None
     )
 
-    assert found is None
 
-
-def test_issued_references_match_pattern_and_are_unique(
+@pytest.mark.parametrize(
+    "claim_type",
+    [
+        pytest.param("collision", id="first-reference"),
+        pytest.param("theft", id="second-reference"),
+    ],
+)
+def test_issued_references_match_contract_pattern(
     repository: NotificationRepository,
+    claim_type: ClaimType,
 ) -> None:
+    recorded = repository.record(_notification(claim_type=claim_type))
+
+    assert CLAIM_REFERENCE_PATTERN.match(recorded.claim_reference)
+
+
+def test_issued_references_are_unique(repository: NotificationRepository) -> None:
     first = repository.record(_notification(claim_type="collision"))
     second = repository.record(_notification(claim_type="theft"))
 
-    assert CLAIM_REFERENCE_PATTERN.match(first.claim_reference)
-    assert CLAIM_REFERENCE_PATTERN.match(second.claim_reference)
     assert first.claim_reference != second.claim_reference
 
 
@@ -82,18 +100,28 @@ def test_reference_year_is_recording_year_not_loss_year(
 
     year = datetime.now(tz=UTC).date().year
     assert recorded.claim_reference.startswith(f"CLM-{year}-")
-    assert not recorded.claim_reference.startswith("CLM-2025-") or year == 2025
 
 
-def test_partial_triple_is_not_a_match(
+@pytest.mark.parametrize(
+    "policy_number,loss_date,claim_type",
+    [
+        pytest.param("MOT-9999", date(2026, 4, 2), "collision", id="wrong-policy"),
+        pytest.param("MOT-4471", date(2026, 4, 3), "collision", id="wrong-date"),
+        pytest.param("MOT-4471", date(2026, 4, 2), "theft", id="wrong-type"),
+    ],
+)
+def test_partial_triple_is_not_a_duplicate(
     repository: NotificationRepository,
+    policy_number: str,
+    loss_date: date,
+    claim_type: ClaimType,
 ) -> None:
     repository.record(_notification(claim_type="collision"))
 
     found = repository.find_matching(
-        policy_number="MOT-4471",
-        loss_date=date(2026, 4, 2),
-        claim_type="theft",
+        policy_number=policy_number,
+        loss_date=loss_date,
+        claim_type=claim_type,
     )
 
     assert found is None

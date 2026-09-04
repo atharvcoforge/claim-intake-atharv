@@ -15,10 +15,11 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     field_validator,
@@ -31,6 +32,38 @@ ClaimType = Literal["collision", "theft", "glass", "liability", "weather"]
 
 _TWO_PLACE_DECIMAL = re.compile(r"^[0-9]+\.[0-9]{2}$")
 _CLAIM_REFERENCE = re.compile(r"^CLM-\d{4}-\d{6}$")
+
+
+def _parse_money_amount(value: object) -> Decimal:
+    """Contract money: written two decimal places, greater than zero, never a float.
+
+    Shared across request, policy limit, and recorded claim so V-4 comparisons
+    cannot see a scale the caller did not send. JSON numbers have no written
+    scale to preserve, so they are refused here rather than coerced.
+    """
+    if isinstance(value, Decimal):
+        if value <= 0 or value.as_tuple().exponent != -2:
+            raise ValueError(
+                "money amount must be greater than zero with exactly two decimal places"
+            )
+        return value
+    if isinstance(value, str):
+        if not _TWO_PLACE_DECIMAL.fullmatch(value):
+            raise ValueError(
+                "money amount must be a string with exactly two decimal places"
+            )
+        amount = Decimal(value)
+        if amount <= 0:
+            raise ValueError("money amount must be greater than zero")
+        return amount
+    raise ValueError(
+        "money amount must arrive as a string with exactly two decimal places"
+    )
+
+
+# Annotated alias so every money field carries the same constraint
+# (https://docs.pydantic.dev/latest/concepts/fields/).
+MoneyAmount = Annotated[Decimal, BeforeValidator(_parse_money_amount)]
 
 
 class RuleId(StrEnum):
@@ -83,7 +116,7 @@ class NotificationRequest(BaseModel):
     policy_number: str = Field(min_length=1)
     loss_date: date
     claim_type: ClaimType
-    estimated_amount: Decimal
+    estimated_amount: MoneyAmount
     description: str | None = None
 
     @field_validator("loss_date", mode="before")
@@ -96,28 +129,17 @@ class NotificationRequest(BaseModel):
             raise ValueError("loss_date must be YYYY-MM-DD")
         return value
 
-    @field_validator("estimated_amount", mode="before")
-    @classmethod
-    def estimated_amount_from_written_form(cls, value: object) -> object:
-        if isinstance(value, Decimal):
-            if value <= 0 or value.as_tuple().exponent != -2:
-                raise ValueError(
-                    "estimated_amount must be greater than zero with exactly two decimal places"
-                )
-            return value
-        if isinstance(value, str):
-            if not _TWO_PLACE_DECIMAL.fullmatch(value):
-                raise ValueError(
-                    "estimated_amount must be a string with exactly two decimal places"
-                )
-            amount = Decimal(value)
-            if amount <= 0:
-                raise ValueError("estimated_amount must be greater than zero")
-            return amount
-        # JSON numbers (and anything else) have no written scale to preserve.
-        raise ValueError(
-            "estimated_amount must arrive as a string with exactly two decimal places"
-        )
+
+@dataclass(frozen=True)
+class AcceptedNotification:
+    """A notification that cleared every rule and may be written.
+
+    Day 3 constructs this after the rule table passes. The repository only
+    accepts this type, so a refusal has no write path: WI-0151 AC-3 is a
+    property of the API surface, not a convention callers must remember.
+    """
+
+    notification: NotificationRequest
 
 
 class Policy(BaseModel):
@@ -129,48 +151,50 @@ class Policy(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    policy_number: str
-    product: str
+    policy_number: str = Field(min_length=1)
+    product: str = Field(min_length=1)
     effective_date: date
     expiry_date: date
     cancellation_date: date | None
-    limit: Decimal
-    permitted_claim_types: tuple[str, ...]
+    limit: MoneyAmount
+    permitted_claim_types: tuple[ClaimType, ...] = Field(min_length=1)
 
     @classmethod
     def from_record(cls, record: PolicyRecord) -> Policy:
-        return cls(
-            policy_number=record.policy_number,
-            product=record.product,
-            effective_date=record.effective_date,
-            expiry_date=record.expiry_date,
-            cancellation_date=record.cancellation_date,
-            limit=record.limit,
-            permitted_claim_types=record.permitted_claim_types,
+        # model_validate narrows PolicyRecord's loose tuple[str, ...] against
+        # ClaimType; constructing Policy(...) directly fails mypy on that field.
+        return cls.model_validate(
+            {
+                "policy_number": record.policy_number,
+                "product": record.product,
+                "effective_date": record.effective_date,
+                "expiry_date": record.expiry_date,
+                "cancellation_date": record.cancellation_date,
+                "limit": record.limit,
+                "permitted_claim_types": record.permitted_claim_types,
+            }
         )
 
 
-class RecordedNotification(BaseModel):
+class ClaimRecord(BaseModel):
     """A notification that passed every rule and was written.
 
     Carries the claim reference issued at the time it was recorded. Contract
-    section 3 fixes the reference format.
+    section 3 fixes the reference format. Money constraints match the request
+    so a recorded amount cannot drift from what the portal sent.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     claim_reference: str
-    policy_number: str
+    policy_number: str = Field(min_length=1)
     loss_date: date
     claim_type: ClaimType
-    estimated_amount: Decimal
+    estimated_amount: MoneyAmount
     description: str | None = None
 
     @model_validator(mode="after")
-    def claim_reference_matches_contract(self) -> RecordedNotification:
+    def claim_reference_matches_contract(self) -> ClaimRecord:
         if not _CLAIM_REFERENCE.fullmatch(self.claim_reference):
             raise ValueError("claim_reference must match CLM-YYYY-NNNNNN")
         return self
-
-
-ClaimRecord = RecordedNotification

@@ -1,7 +1,7 @@
 """Unit tests for the notification repository.
 
-Pins claim-reference issuance and the WI-0151 duplicate query. The store only
-sees notifications that were recorded; refused submissions never reach it.
+Pins claim-reference issuance and the WI-0151 duplicate query. The store's only
+write path takes AcceptedNotification, so a refusal has nothing to match against.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 
-from claims.models import ClaimType, NotificationRequest
+from claims.models import AcceptedNotification, ClaimType, NotificationRequest
 from claims.repository import NotificationRepository
 
 CLAIM_REFERENCE_PATTERN = re.compile(r"^CLM-\d{4}-\d{6}$")
@@ -35,10 +35,29 @@ def _notification(
     )
 
 
+def _accepted(
+    *,
+    policy_number: str = "MOT-4471",
+    loss_date: date = date(2026, 4, 2),
+    claim_type: ClaimType = "collision",
+    estimated_amount: Decimal = Decimal("4200.00"),
+    description: str | None = "Rear ended at a junction.",
+) -> AcceptedNotification:
+    return AcceptedNotification(
+        notification=_notification(
+            policy_number=policy_number,
+            loss_date=loss_date,
+            claim_type=claim_type,
+            estimated_amount=estimated_amount,
+            description=description,
+        )
+    )
+
+
 def test_wi0151_ac1_matching_triple_returns_the_recorded_notification(
     repository: NotificationRepository,
 ) -> None:
-    recorded = repository.record(_notification())
+    recorded = repository.record(_accepted())
 
     found = repository.find_matching(
         policy_number="MOT-4471",
@@ -53,18 +72,30 @@ def test_wi0151_ac1_matching_triple_returns_the_recorded_notification(
     assert found.claim_type == "collision"
 
 
-def test_wi0151_ac3_rejected_notification_is_not_a_duplicate(
+def test_wi0151_ac3_refusal_has_no_write_path(
     repository: NotificationRepository,
 ) -> None:
-    # A refusal never calls record(). Resubmitting the same triple finds nothing
-    # to match, so V-6 cannot treat the earlier refusal as a duplicate.
-    rejected = _notification()
+    # A refusal is a RuleFailure, which record() does not accept. The would-be
+    # rejected request never becomes AcceptedNotification, so find_matching has
+    # nothing to return even after an unrelated acceptance is stored.
+    refused = _notification(
+        policy_number="MOT-4471",
+        loss_date=date(2026, 4, 2),
+        claim_type="collision",
+    )
+    repository.record(
+        _accepted(
+            policy_number="MOT-4471",
+            loss_date=date(2026, 5, 1),
+            claim_type="theft",
+        )
+    )
 
     assert (
         repository.find_matching(
-            policy_number=rejected.policy_number,
-            loss_date=rejected.loss_date,
-            claim_type=rejected.claim_type,
+            policy_number=refused.policy_number,
+            loss_date=refused.loss_date,
+            claim_type=refused.claim_type,
         )
         is None
     )
@@ -81,14 +112,14 @@ def test_issued_references_match_contract_pattern(
     repository: NotificationRepository,
     claim_type: ClaimType,
 ) -> None:
-    recorded = repository.record(_notification(claim_type=claim_type))
+    recorded = repository.record(_accepted(claim_type=claim_type))
 
     assert CLAIM_REFERENCE_PATTERN.match(recorded.claim_reference)
 
 
 def test_issued_references_are_unique(repository: NotificationRepository) -> None:
-    first = repository.record(_notification(claim_type="collision"))
-    second = repository.record(_notification(claim_type="theft"))
+    first = repository.record(_accepted(claim_type="collision"))
+    second = repository.record(_accepted(claim_type="theft"))
 
     assert first.claim_reference != second.claim_reference
 
@@ -96,7 +127,7 @@ def test_issued_references_are_unique(repository: NotificationRepository) -> Non
 def test_reference_year_is_recording_year_not_loss_year(
     repository: NotificationRepository,
 ) -> None:
-    recorded = repository.record(_notification(loss_date=date(2025, 6, 15)))
+    recorded = repository.record(_accepted(loss_date=date(2025, 6, 15)))
 
     year = datetime.now(tz=UTC).date().year
     assert recorded.claim_reference.startswith(f"CLM-{year}-")
@@ -116,7 +147,7 @@ def test_partial_triple_is_not_a_duplicate(
     loss_date: date,
     claim_type: ClaimType,
 ) -> None:
-    repository.record(_notification(claim_type="collision"))
+    repository.record(_accepted(claim_type="collision"))
 
     found = repository.find_matching(
         policy_number=policy_number,

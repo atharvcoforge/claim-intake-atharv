@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from claims.models import NotificationRequest, Policy, RecordedNotification
+from claims.models import ClaimRecord, NotificationRequest, Policy
 from claims.policy_client import PolicyClient, PolicyNotFound
 from claims.repository import NotificationRepository
 
@@ -141,7 +141,7 @@ def submit_notification(
     notification: NotificationRequest,
     policy_client: PolicyClient,
     repository: NotificationRepository,
-) -> RecordedNotification | ValidationOutcome:
+) -> ClaimRecord | ValidationOutcome:
     """Validate, and record only if every rule passed.
 
     Nothing is written before the decision is made. A notification is either

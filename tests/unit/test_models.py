@@ -184,12 +184,27 @@ def test_policy_from_record_null_cancellation(policy_client: StubPolicyClient) -
     assert policy.policy_number == "MOT-4471"
     assert policy.effective_date == date(2026, 3, 1)
     assert policy.limit == Decimal("50000.00")
+    assert "collision" in policy.permitted_claim_types
 
 
 def test_policy_from_record_with_cancellation(policy_client: StubPolicyClient) -> None:
     policy = Policy.from_record(policy_client.get_policy("MOT-4497"))
 
     assert policy.cancellation_date == date(2026, 1, 15)
+
+
+def _valid_policy(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "policy_number": "MOT-4471",
+        "product": "personal_auto_standard",
+        "effective_date": date(2026, 3, 1),
+        "expiry_date": date(2027, 2, 28),
+        "cancellation_date": None,
+        "limit": Decimal("50000.00"),
+        "permitted_claim_types": ("collision",),
+    }
+    payload.update(overrides)
+    return payload
 
 
 @pytest.mark.parametrize(
@@ -206,18 +221,29 @@ def test_policy_from_record_with_cancellation(policy_client: StubPolicyClient) -
             },
             id="missing-cancellation-date",
         ),
+        pytest.param(_valid_policy(extra="nope"), id="extra-field"),
+        pytest.param(_valid_policy(policy_number=""), id="empty-policy-number"),
+        pytest.param(_valid_policy(product=""), id="empty-product"),
+        pytest.param(_valid_policy(limit=50000.0), id="limit-as-float"),
+        pytest.param(_valid_policy(limit=50000), id="limit-as-int"),
+        pytest.param(_valid_policy(limit="0.00"), id="limit-zero"),
+        pytest.param(_valid_policy(limit="-1.00"), id="limit-negative"),
+        pytest.param(_valid_policy(limit="50000.0"), id="limit-one-decimal"),
         pytest.param(
-            {
-                "policy_number": "MOT-4471",
-                "product": "personal_auto_standard",
-                "effective_date": date(2026, 3, 1),
-                "expiry_date": date(2027, 2, 28),
-                "cancellation_date": None,
-                "limit": Decimal("50000.00"),
-                "permitted_claim_types": ("collision",),
-                "extra": "nope",
-            },
-            id="extra-field",
+            _valid_policy(limit="50000.000"),
+            id="limit-three-decimals",
+        ),
+        pytest.param(
+            _valid_policy(permitted_claim_types=()),
+            id="empty-permitted-claim-types",
+        ),
+        pytest.param(
+            _valid_policy(permitted_claim_types=("flood",)),
+            id="permitted-type-outside-vocabulary",
+        ),
+        pytest.param(
+            _valid_policy(permitted_claim_types=("Collision",)),
+            id="permitted-type-wrong-case",
         ),
     ],
 )
@@ -226,29 +252,57 @@ def test_policy_constraint_violations(payload: dict[str, object]) -> None:
         Policy.model_validate(payload)
 
 
+def _valid_claim_record(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "claim_reference": "CLM-2026-000001",
+        "policy_number": "MOT-4471",
+        "loss_date": date(2026, 4, 2),
+        "claim_type": "collision",
+        "estimated_amount": Decimal("4200.00"),
+    }
+    payload.update(overrides)
+    return payload
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         pytest.param(
-            {
-                "claim_reference": "CLM-26-000001",
-                "policy_number": "MOT-4471",
-                "loss_date": date(2026, 4, 2),
-                "claim_type": "collision",
-                "estimated_amount": Decimal("4200.00"),
-            },
+            _valid_claim_record(claim_reference="CLM-26-000001"),
             id="claim-reference-wrong-format",
         ),
+        pytest.param(_valid_claim_record(extra="nope"), id="extra-field"),
         pytest.param(
-            {
-                "claim_reference": "CLM-2026-000001",
-                "policy_number": "MOT-4471",
-                "loss_date": date(2026, 4, 2),
-                "claim_type": "collision",
-                "estimated_amount": Decimal("4200.00"),
-                "extra": "nope",
-            },
-            id="extra-field",
+            _valid_claim_record(policy_number=""),
+            id="empty-policy-number",
+        ),
+        pytest.param(
+            _valid_claim_record(estimated_amount=4200.0),
+            id="amount-as-float",
+        ),
+        pytest.param(
+            _valid_claim_record(estimated_amount=4200),
+            id="amount-as-int",
+        ),
+        pytest.param(
+            _valid_claim_record(estimated_amount="0.00"),
+            id="amount-zero",
+        ),
+        pytest.param(
+            _valid_claim_record(estimated_amount="-1.00"),
+            id="amount-negative",
+        ),
+        pytest.param(
+            _valid_claim_record(estimated_amount="4200.0"),
+            id="amount-one-decimal",
+        ),
+        pytest.param(
+            _valid_claim_record(estimated_amount="4200.000"),
+            id="amount-three-decimals",
+        ),
+        pytest.param(
+            _valid_claim_record(claim_type="flood"),
+            id="claim-type-outside-vocabulary",
         ),
     ],
 )

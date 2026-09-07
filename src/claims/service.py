@@ -187,6 +187,16 @@ def evaluate_claim_type_covered(
     policy: Policy,
 ) -> RuleFailure | None:
     """V-5. The claim type must be permitted on the policy's product."""
+    if notification.claim_type not in policy.permitted_claim_types:
+        return RuleFailure(
+            rule=RuleId.V5,
+            code=ErrorCode.TYPE_NOT_COVERED,
+            detail={
+                "policy_number": notification.policy_number,
+                "claim_type": notification.claim_type,
+                "permitted_claim_types": list(policy.permitted_claim_types),
+            },
+        )
     return None
 
 
@@ -213,7 +223,10 @@ def evaluate_notification(
     failure = evaluate_loss_before_expiry(notification, policy)
     if failure is not None:
         return failure
-    return evaluate_amount_within_limit(notification, policy)
+    failure = evaluate_amount_within_limit(notification, policy)
+    if failure is not None:
+        return failure
+    return evaluate_claim_type_covered(notification, policy)
 
 
 def submit_notification(

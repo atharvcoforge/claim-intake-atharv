@@ -163,3 +163,44 @@ def test_v7_cancellation_boundary(
         }
     else:
         assert failure is None
+
+
+@pytest.mark.parametrize(
+    "loss_date,expect_failure",
+    [
+        pytest.param(
+            date(2027, 3, 1),
+            True,
+            id="loss-day-after-expiry",
+        ),
+        pytest.param(
+            date(2027, 2, 28),
+            False,
+            id="loss-on-expiry",
+        ),
+        pytest.param(
+            date(2027, 2, 27),
+            False,
+            id="loss-day-before-expiry",
+        ),
+    ],
+)
+def test_v3_loss_against_expiry_boundary(
+    loss_date: date, expect_failure: bool
+) -> None:
+    policy = _policy(expiry_date=date(2027, 2, 28))
+    notification = _notification(loss_date=loss_date)
+
+    failure = evaluate_notification(notification, policy)
+
+    if expect_failure:
+        assert failure is not None
+        assert failure.rule is RuleId.V3
+        assert failure.code is ErrorCode.LOSS_AFTER_EXPIRY
+        assert failure.detail == {
+            "policy_number": "MOT-4471",
+            "loss_date": date(2027, 3, 1),
+            "expiry_date": date(2027, 2, 28),
+        }
+    else:
+        assert failure is None

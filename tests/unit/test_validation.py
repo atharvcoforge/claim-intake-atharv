@@ -204,3 +204,44 @@ def test_v3_loss_against_expiry_boundary(
         }
     else:
         assert failure is None
+
+
+@pytest.mark.parametrize(
+    "estimated_amount,expect_failure",
+    [
+        pytest.param(
+            Decimal("50000.01"),
+            True,
+            id="amount-one-cent-over-limit",
+        ),
+        pytest.param(
+            Decimal("50000.00"),
+            False,
+            id="amount-equal-to-limit",
+        ),
+        pytest.param(
+            Decimal("49999.99"),
+            False,
+            id="amount-one-cent-under-limit",
+        ),
+    ],
+)
+def test_v4_amount_against_limit_boundary(
+    estimated_amount: Decimal, expect_failure: bool
+) -> None:
+    policy = _policy(limit=Decimal("50000.00"))
+    notification = _notification(estimated_amount=estimated_amount)
+
+    failure = evaluate_notification(notification, policy)
+
+    if expect_failure:
+        assert failure is not None
+        assert failure.rule is RuleId.V4
+        assert failure.code is ErrorCode.AMOUNT_EXCEEDS_LIMIT
+        assert failure.detail == {
+            "policy_number": "MOT-4471",
+            "estimated_amount": Decimal("50000.01"),
+            "limit": Decimal("50000.00"),
+        }
+    else:
+        assert failure is None

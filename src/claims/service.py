@@ -21,6 +21,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from claims.models import (
+    AcceptedNotification,
     ErrorCode,
     NotificationRequest,
     Policy,
@@ -249,7 +250,42 @@ def submit_notification(
     recorded with a claim reference or it does not exist, and there is no state in
     between for a later reader to interpret.
 
-    Stub returns a fake acceptance so failing tests die on assertion values, not
-    on NotImplementedError naming a missing function.
+    `PolicyNotFound` becomes V-1. `PolicyLookupFailed` is not caught: contract
+    section 6.3 requires the HTTP layer to map its reason to the matching 5xx.
     """
-    return ValidationOutcome(accepted=True, claim_reference="CLM-2026-000001")
+    try:
+        record = policy_client.get_policy(notification.policy_number)
+    except PolicyNotFound:
+        return ValidationOutcome(
+            accepted=False,
+            failure=RuleFailure(
+                rule=RuleId.V1,
+                code=ErrorCode.POLICY_NOT_FOUND,
+                detail={"policy_number": notification.policy_number},
+            ),
+        )
+    policy = Policy.from_record(record)
+    failure = evaluate_notification(notification, policy)
+    if failure is not None:
+        return ValidationOutcome(accepted=False, failure=failure)
+    existing = repository.find_matching(
+        notification.policy_number,
+        notification.loss_date,
+        notification.claim_type,
+    )
+    if existing is not None:
+        return ValidationOutcome(
+            accepted=False,
+            failure=RuleFailure(
+                rule=RuleId.V6,
+                code=ErrorCode.DUPLICATE_NOTIFICATION,
+                detail={
+                    "policy_number": notification.policy_number,
+                    "loss_date": notification.loss_date,
+                    "claim_type": notification.claim_type,
+                    "claim_reference": existing.claim_reference,
+                },
+            ),
+        )
+    recorded = repository.record(AcceptedNotification(notification=notification))
+    return ValidationOutcome(accepted=True, claim_reference=recorded.claim_reference)

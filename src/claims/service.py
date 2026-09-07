@@ -17,6 +17,7 @@ Day 3 assignment. Build the remaining rules test-first against
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from claims.models import (
@@ -28,6 +29,8 @@ from claims.models import (
 )
 from claims.policy_client import PolicyClient, PolicyNotFound
 from claims.repository import NotificationRepository
+
+PolicyRule = Callable[[NotificationRequest, Policy], RuleFailure | None]
 
 
 @dataclass(frozen=True)
@@ -200,6 +203,20 @@ def evaluate_claim_type_covered(
     return None
 
 
+# V-1 is the policy lookup in submit_notification (PolicyNotFound → POLICY_NOT_FOUND).
+# V-6 is repository.find_matching in submit_notification after this list.
+# Putting the repository inside POLICY_RULES would mix deciding with doing and would
+# duplicate-check notifications that already failed a policy rule (WI-0151 AC-3).
+# Order still matches contract section 4.1: V-1 → V-2 → V-7 → V-3 → V-4 → V-5 → V-6.
+POLICY_RULES: Sequence[PolicyRule] = (
+    evaluate_loss_after_inception,  # V-2
+    evaluate_not_cancelled,  # V-7
+    evaluate_loss_before_expiry,  # V-3
+    evaluate_amount_within_limit,  # V-4
+    evaluate_claim_type_covered,  # V-5
+)
+
+
 def evaluate_notification(
     notification: NotificationRequest,
     policy: Policy,
@@ -214,19 +231,11 @@ def evaluate_notification(
     V-1 and V-6 are not in this function: V-1 is the policy lookup in
     `submit_notification`, and V-6 is the repository duplicate check there.
     """
-    failure = evaluate_loss_after_inception(notification, policy)
-    if failure is not None:
-        return failure
-    failure = evaluate_not_cancelled(notification, policy)
-    if failure is not None:
-        return failure
-    failure = evaluate_loss_before_expiry(notification, policy)
-    if failure is not None:
-        return failure
-    failure = evaluate_amount_within_limit(notification, policy)
-    if failure is not None:
-        return failure
-    return evaluate_claim_type_covered(notification, policy)
+    for rule in POLICY_RULES:
+        failure = rule(notification, policy)
+        if failure is not None:
+            return failure
+    return None
 
 
 def submit_notification(

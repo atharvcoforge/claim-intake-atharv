@@ -143,7 +143,21 @@ def evaluate_loss_before_expiry(
     notification: NotificationRequest,
     policy: Policy,
 ) -> RuleFailure | None:
-    """V-3. The loss must not fall after the policy expiry date."""
+    """V-3. The loss must not fall after the policy expiry date.
+
+    Contract section 4.2: loss_date <= expiry_date. A loss on the final day of
+    the term is covered.
+    """
+    if notification.loss_date > policy.expiry_date:
+        return RuleFailure(
+            rule=RuleId.V3,
+            code=ErrorCode.LOSS_AFTER_EXPIRY,
+            detail={
+                "policy_number": notification.policy_number,
+                "loss_date": notification.loss_date,
+                "expiry_date": policy.expiry_date,
+            },
+        )
     return None
 
 
@@ -183,7 +197,10 @@ def evaluate_notification(
     failure = evaluate_loss_after_inception(notification, policy)
     if failure is not None:
         return failure
-    return evaluate_not_cancelled(notification, policy)
+    failure = evaluate_not_cancelled(notification, policy)
+    if failure is not None:
+        return failure
+    return evaluate_loss_before_expiry(notification, policy)
 
 
 def submit_notification(

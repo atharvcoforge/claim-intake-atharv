@@ -13,7 +13,14 @@ from decimal import Decimal
 import pytest
 
 from claims.models import ClaimType, ErrorCode, NotificationRequest, Policy, RuleId
-from claims.service import evaluate_notification
+from claims.policy_client import (
+    LookupFailureReason,
+    PolicyLookupFailed,
+    PolicyRecord,
+    StubPolicyClient,
+)
+from claims.repository import NotificationRepository
+from claims.service import evaluate_notification, submit_notification
 
 
 def _notification(
@@ -340,3 +347,215 @@ def test_wi0158_ac4_v7_precedes_v3_when_both_would_fail() -> None:
     assert failure is not None
     assert failure.rule is RuleId.V7
     assert failure.code is ErrorCode.POLICY_CANCELLED
+
+
+@pytest.mark.parametrize(
+    "policy_number,loss_date,expect_detail",
+    [
+        pytest.param(
+            "MOT-9999",
+            date(2026, 4, 2),
+            True,
+            id="unknown-policy-number",
+        ),
+        pytest.param(
+            "mot-4471",
+            date(2026, 4, 6),
+            False,
+            id="edge07-case-mismatch",
+        ),
+        pytest.param(
+            "MOT-9999",
+            date(2020, 1, 1),
+            False,
+            id="wi0142-ac4-unknown-not-evaluated-as-v2",
+        ),
+    ],
+)
+def test_v1_policy_existence_boundary(
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+    policy_number: str,
+    loss_date: date,
+    expect_detail: bool,
+) -> None:
+    notification = _notification(policy_number=policy_number, loss_date=loss_date)
+
+    outcome = submit_notification(notification, policy_client, repository)
+
+    assert outcome.accepted is False
+    assert outcome.claim_reference is None
+    assert outcome.failure is not None
+    assert outcome.failure.rule is RuleId.V1
+    assert outcome.failure.code is ErrorCode.POLICY_NOT_FOUND
+    if expect_detail:
+        assert outcome.failure.detail == {"policy_number": "MOT-9999"}
+        assert (
+            repository.find_matching("MOT-9999", notification.loss_date, "collision")
+            is None
+        )
+
+
+def test_v6_exact_recorded_triple_is_duplicate(
+    policy_client: StubPolicyClient, repository: NotificationRepository
+) -> None:
+    notification = _notification()
+    first = submit_notification(notification, policy_client, repository)
+    assert first.accepted is True
+    assert first.claim_reference is not None
+
+    second = submit_notification(notification, policy_client, repository)
+
+    assert second.accepted is False
+    assert second.failure is not None
+    assert second.failure.rule is RuleId.V6
+    assert second.failure.code is ErrorCode.DUPLICATE_NOTIFICATION
+    assert second.failure.detail == {
+        "policy_number": "MOT-4471",
+        "loss_date": date(2026, 4, 2),
+        "claim_type": "collision",
+        "claim_reference": first.claim_reference,
+    }
+    found = repository.find_matching("MOT-4471", date(2026, 4, 2), "collision")
+    assert found is not None
+    assert found.claim_reference == first.claim_reference
+
+
+@pytest.mark.parametrize(    "policy_number,loss_date,claim_type",
+    [
+        pytest.param("MOT-4472", date(2026, 4, 2), "collision", id="wrong-policy"),
+        pytest.param("MOT-4471", date(2026, 4, 3), "collision", id="wrong-date"),
+        pytest.param("MOT-4471", date(2026, 4, 2), "theft", id="wrong-type"),
+    ],
+)
+def test_v6_partial_triple_is_not_a_duplicate(
+    policy_client: StubPolicyClient,
+    repository: NotificationRepository,
+    policy_number: str,
+    loss_date: date,
+    claim_type: ClaimType,
+) -> None:
+    first = submit_notification(_notification(), policy_client, repository)
+    assert first.accepted is True
+
+    outcome = submit_notification(
+        _notification(
+            policy_number=policy_number,
+            loss_date=loss_date,
+            claim_type=claim_type,
+        ),
+        policy_client,
+        repository,
+    )
+
+    assert outcome.failure is None or outcome.failure.code is not ErrorCode.DUPLICATE_NOTIFICATION
+
+
+def test_wi0151_ac3_rejected_notification_is_not_a_duplicate(
+    policy_client: StubPolicyClient, repository: NotificationRepository
+) -> None:
+    over_limit = _notification(
+        policy_number="MOT-4502",
+        loss_date=date(2026, 3, 19),
+        estimated_amount=Decimal("26000.00"),
+    )
+    refused = submit_notification(over_limit, policy_client, repository)
+    assert refused.accepted is False
+    assert refused.failure is not None
+    assert refused.failure.code is ErrorCode.AMOUNT_EXCEEDS_LIMIT
+
+    within_limit = _notification(
+        policy_number="MOT-4502",
+        loss_date=date(2026, 3, 19),
+        estimated_amount=Decimal("1250.00"),
+    )
+    accepted = submit_notification(within_limit, policy_client, repository)
+
+    assert accepted.accepted is True
+    assert accepted.failure is None
+    assert accepted.claim_reference is not None
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        pytest.param("timeout", id="lookup-timeout"),
+        pytest.param("unreachable", id="lookup-unreachable"),
+        pytest.param("unparsable", id="lookup-unparsable"),
+    ],
+)
+def test_policy_lookup_failed_propagates_with_reason_intact(
+    repository: NotificationRepository,
+    reason: LookupFailureReason,
+) -> None:
+    client = StubPolicyClient(fail_with=reason)
+    notification = _notification()
+
+    with pytest.raises(PolicyLookupFailed) as exc_info:
+        submit_notification(notification, client, repository)
+
+    assert exc_info.value.reason == reason
+    assert (
+        repository.find_matching(
+            notification.policy_number,
+            notification.loss_date,
+            notification.claim_type,
+        )
+        is None
+    )
+
+
+class _BoomClient:
+    def get_policy(self, policy_number: str) -> PolicyRecord:
+        raise RuntimeError("Boom")
+
+
+def test_unexpected_client_error_is_not_converted_to_v1(
+    repository: NotificationRepository,
+) -> None:
+    client = _BoomClient()
+    with pytest.raises(RuntimeError, match="Boom"):
+        submit_notification(_notification(), client, repository)
+
+def test_submit_records_accepted_notification(
+    policy_client: StubPolicyClient, repository: NotificationRepository
+) -> None:
+    notification = _notification()
+
+    outcome = submit_notification(notification, policy_client, repository)
+
+    assert outcome.accepted is True
+    assert outcome.failure is None
+    assert outcome.claim_reference is not None
+    assert outcome.claim_reference.startswith("CLM-")
+    found = repository.find_matching(
+        notification.policy_number,
+        notification.loss_date,
+        notification.claim_type,
+    )
+    assert found is not None
+    assert found.claim_reference == outcome.claim_reference
+
+
+def test_wi0142_ac1_refusal_is_not_recorded(
+    policy_client: StubPolicyClient, repository: NotificationRepository
+) -> None:
+    notification = _notification(
+        policy_number="MOT-4493",
+        loss_date=date(2026, 3, 2),
+        estimated_amount=Decimal("1000.00"),
+    )
+
+    outcome = submit_notification(notification, policy_client, repository)
+
+    assert outcome.accepted is False
+    assert outcome.failure is not None
+    assert outcome.failure.code is ErrorCode.LOSS_BEFORE_INCEPTION
+    assert (
+        repository.find_matching(
+            notification.policy_number,
+            notification.loss_date,
+            notification.claim_type,
+        )
+        is None
+    )

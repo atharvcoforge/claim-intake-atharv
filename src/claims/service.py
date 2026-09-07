@@ -101,6 +101,16 @@ def evaluate_loss_after_inception(
     The boundary is stated in contract section 4.2 and in WI-0142 AC-3. A loss on
     the inception date is covered.
     """
+    if notification.loss_date < policy.effective_date:
+        return RuleFailure(
+            rule=RuleId.V2,
+            code=ErrorCode.LOSS_BEFORE_INCEPTION,
+            detail={
+                "policy_number": notification.policy_number,
+                "loss_date": notification.loss_date,
+                "effective_date": policy.effective_date,
+            },
+        )
     return None
 
 
@@ -153,7 +163,7 @@ def evaluate_notification(
     V-1 and V-6 are not in this function: V-1 is the policy lookup in
     `submit_notification`, and V-6 is the repository duplicate check there.
     """
-    return None
+    return evaluate_loss_after_inception(notification, policy)
 
 
 def submit_notification(

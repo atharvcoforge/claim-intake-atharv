@@ -169,6 +169,16 @@ def evaluate_amount_within_limit(
 
     An amount equal to the limit is within cover, per contract section 4.2.
     """
+    if notification.estimated_amount > policy.limit:
+        return RuleFailure(
+            rule=RuleId.V4,
+            code=ErrorCode.AMOUNT_EXCEEDS_LIMIT,
+            detail={
+                "policy_number": notification.policy_number,
+                "estimated_amount": notification.estimated_amount,
+                "limit": policy.limit,
+            },
+        )
     return None
 
 
@@ -200,7 +210,10 @@ def evaluate_notification(
     failure = evaluate_not_cancelled(notification, policy)
     if failure is not None:
         return failure
-    return evaluate_loss_before_expiry(notification, policy)
+    failure = evaluate_loss_before_expiry(notification, policy)
+    if failure is not None:
+        return failure
+    return evaluate_amount_within_limit(notification, policy)
 
 
 def submit_notification(

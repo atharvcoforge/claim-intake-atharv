@@ -11,7 +11,7 @@ Day 2 assignment. Implement these against `docs/api-contract.md` sections 2 and 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -95,11 +95,13 @@ class RuleFailure:
     """A failed rule decision.
 
     `rule` and `code` are distinct types so a rule identifier cannot be passed
-    where an error code is expected.
+    where an error code is expected. `detail` carries the section 5.2 keys for
+    the code; callers may rely only on those keys.
     """
 
     rule: RuleId
     code: ErrorCode
+    detail: dict[str, object] = field(default_factory=dict)
 
 
 class NotificationRequest(BaseModel):

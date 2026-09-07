@@ -118,7 +118,24 @@ def evaluate_not_cancelled(
     notification: NotificationRequest,
     policy: Policy,
 ) -> RuleFailure | None:
-    """V-7. Cover ends at the start of the cancellation date when one is set."""
+    """V-7. Cover ends at the start of the cancellation date when one is set.
+
+    Contract section 4.2 and WI-0158 AC-2: a loss on the cancellation date is not
+    covered. AC-3: a null cancellation_date means this rule does not apply.
+    """
+    if (
+        policy.cancellation_date is not None
+        and notification.loss_date >= policy.cancellation_date
+    ):
+        return RuleFailure(
+            rule=RuleId.V7,
+            code=ErrorCode.POLICY_CANCELLED,
+            detail={
+                "policy_number": notification.policy_number,
+                "loss_date": notification.loss_date,
+                "cancellation_date": policy.cancellation_date,
+            },
+        )
     return None
 
 
@@ -163,7 +180,10 @@ def evaluate_notification(
     V-1 and V-6 are not in this function: V-1 is the policy lookup in
     `submit_notification`, and V-6 is the repository duplicate check there.
     """
-    return evaluate_loss_after_inception(notification, policy)
+    failure = evaluate_loss_after_inception(notification, policy)
+    if failure is not None:
+        return failure
+    return evaluate_not_cancelled(notification, policy)
 
 
 def submit_notification(

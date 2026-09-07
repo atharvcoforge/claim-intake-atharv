@@ -101,3 +101,65 @@ def test_v2_loss_against_inception_boundary(
         }
     else:
         assert failure is None
+
+
+@pytest.mark.parametrize(
+    "cancellation_date,loss_date,expect_failure",
+    [
+        pytest.param(
+            date(2026, 1, 15),
+            date(2026, 1, 15),
+            True,
+            id="wi0158-ac2-loss-on-cancellation-date-not-covered",
+        ),
+        pytest.param(
+            date(2026, 1, 15),
+            date(2026, 1, 16),
+            True,
+            id="loss-after-cancellation",
+        ),
+        pytest.param(
+            date(2026, 1, 15),
+            date(2026, 1, 14),
+            False,
+            id="loss-day-before-cancellation",
+        ),
+        pytest.param(
+            None,
+            date(2026, 4, 2),
+            False,
+            id="wi0158-ac3-absent-cancellation-date",
+        ),
+    ],
+)
+def test_v7_cancellation_boundary(
+    cancellation_date: date | None,
+    loss_date: date,
+    expect_failure: bool,
+) -> None:
+    policy = _policy(
+        policy_number="MOT-4497",
+        effective_date=date(2025, 6, 1),
+        expiry_date=date(2026, 5, 31),
+        cancellation_date=cancellation_date,
+    )
+    notification = _notification(
+        policy_number="MOT-4497",
+        loss_date=loss_date,
+        claim_type="glass",
+        estimated_amount=Decimal("480.00"),
+    )
+
+    failure = evaluate_notification(notification, policy)
+
+    if expect_failure:
+        assert failure is not None
+        assert failure.rule is RuleId.V7
+        assert failure.code is ErrorCode.POLICY_CANCELLED
+        assert failure.detail == {
+            "policy_number": "MOT-4497",
+            "loss_date": loss_date,
+            "cancellation_date": cancellation_date,
+        }
+    else:
+        assert failure is None

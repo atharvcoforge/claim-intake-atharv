@@ -245,3 +245,55 @@ def test_v4_amount_against_limit_boundary(
         }
     else:
         assert failure is None
+
+
+@pytest.mark.parametrize(
+    "claim_type,permitted,expect_failure",
+    [
+        pytest.param(
+            "collision",
+            ("theft", "glass", "weather", "liability"),
+            True,
+            id="collision-not-on-named-perils",
+        ),
+        pytest.param(
+            "theft",
+            ("theft", "glass", "weather", "liability"),
+            False,
+            id="permitted-type-on-named-perils",
+        ),
+    ],
+)
+def test_v5_claim_type_against_permitted_set(
+    claim_type: ClaimType,
+    permitted: tuple[ClaimType, ...],
+    expect_failure: bool,
+) -> None:
+    policy = _policy(
+        policy_number="MOT-4481",
+        product="personal_auto_named_perils",
+        effective_date=date(2026, 2, 15),
+        expiry_date=date(2027, 2, 14),
+        limit=Decimal("30000.00"),
+        permitted_claim_types=permitted,
+    )
+    notification = _notification(
+        policy_number="MOT-4481",
+        loss_date=date(2026, 3, 27),
+        claim_type=claim_type,
+        estimated_amount=Decimal("4800.00"),
+    )
+
+    failure = evaluate_notification(notification, policy)
+
+    if expect_failure:
+        assert failure is not None
+        assert failure.rule is RuleId.V5
+        assert failure.code is ErrorCode.TYPE_NOT_COVERED
+        assert failure.detail == {
+            "policy_number": "MOT-4481",
+            "claim_type": "collision",
+            "permitted_claim_types": list(permitted),
+        }
+    else:
+        assert failure is None

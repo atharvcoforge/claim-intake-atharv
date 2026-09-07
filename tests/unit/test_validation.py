@@ -297,3 +297,46 @@ def test_v5_claim_type_against_permitted_set(
         }
     else:
         assert failure is None
+
+
+def test_v2_precedes_v4_when_both_would_fail() -> None:
+    """Contract 4.1 / EDGE-05: first failure in order is V-2, not V-4."""
+    policy = _policy(
+        policy_number="MOT-4493",
+        effective_date=date(2026, 4, 15),
+        expiry_date=date(2027, 4, 14),
+        limit=Decimal("50000.00"),
+    )
+    notification = _notification(
+        policy_number="MOT-4493",
+        loss_date=date(2026, 3, 2),
+        estimated_amount=Decimal("72000.00"),
+    )
+
+    failure = evaluate_notification(notification, policy)
+
+    assert failure is not None
+    assert failure.rule is RuleId.V2
+    assert failure.code is ErrorCode.LOSS_BEFORE_INCEPTION
+
+
+def test_wi0158_ac4_v7_precedes_v3_when_both_would_fail() -> None:
+    """Cancelled and after original expiry reports POLICY_CANCELLED, not expiry."""
+    policy = _policy(
+        policy_number="MOT-4500",
+        effective_date=date(2025, 1, 1),
+        expiry_date=date(2025, 12, 31),
+        cancellation_date=date(2025, 10, 1),
+        limit=Decimal("45000.00"),
+    )
+    notification = _notification(
+        policy_number="MOT-4500",
+        loss_date=date(2026, 1, 8),
+        estimated_amount=Decimal("6000.00"),
+    )
+
+    failure = evaluate_notification(notification, policy)
+
+    assert failure is not None
+    assert failure.rule is RuleId.V7
+    assert failure.code is ErrorCode.POLICY_CANCELLED

@@ -67,6 +67,14 @@ def _assert_error_envelope(body: dict[str, Any], code: str) -> None:
     assert isinstance(body["detail"], dict)
 
 
+def _assert_invalid_field_detail(body: dict[str, Any], field: str) -> None:
+    """Section 5.2: INVALID_FIELD_VALUE callers may rely on field and reason."""
+    assert set(body["detail"].keys()) == {"field", "reason"}
+    assert body["detail"]["field"] == field
+    assert isinstance(body["detail"]["reason"], str)
+    assert body["detail"]["reason"]
+
+
 def test_valid_notification_returns_201_with_claim_reference(
     client: TestClient,
 ) -> None:
@@ -244,6 +252,8 @@ def test_malformed_json_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "MALFORMED_JSON")
+    # Section 5.2: MALFORMED_JSON guarantees no detail keys.
+    assert body["detail"] == {}
 
 
 def test_json_array_body_returns_malformed_json(client: TestClient) -> None:
@@ -252,6 +262,7 @@ def test_json_array_body_returns_malformed_json(client: TestClient) -> None:
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "MALFORMED_JSON")
+    assert body["detail"] == {}
 
 
 def test_missing_required_field_returns_400(client: TestClient) -> None:
@@ -275,14 +286,57 @@ def test_unknown_field_returns_400(client: TestClient) -> None:
     assert body["detail"] == {"field": "extra_field"}
 
 
+def test_section_61_missing_beats_unknown_field(client: TestClient) -> None:
+    # Break: mapping that returns pydantic's first error would report UNKNOWN_FIELD
+    # when the unknown key is listed before the missing one.
+    payload = _payload("fnol_valid.json", "VALID-01")
+    del payload["estimated_amount"]
+    payload["extra_field"] = "should-not-be-accepted"
+
+    response = client.post("/notifications", json=payload)
+
+    assert response.status_code == 400
+    body = response.json()
+    _assert_error_envelope(body, "MISSING_REQUIRED_FIELD")
+    assert body["detail"] == {"field": "estimated_amount"}
+    assert body["code"] != "UNKNOWN_FIELD"
+
+
+def test_section_61_missing_beats_invalid_field(client: TestClient) -> None:
+    payload = _payload("fnol_valid.json", "VALID-01")
+    del payload["estimated_amount"]
+    payload["claim_type"] = "not-a-vocabulary-value"
+
+    response = client.post("/notifications", json=payload)
+
+    assert response.status_code == 400
+    body = response.json()
+    _assert_error_envelope(body, "MISSING_REQUIRED_FIELD")
+    assert body["detail"] == {"field": "estimated_amount"}
+    assert body["code"] != "INVALID_FIELD_VALUE"
+
+
+def test_section_61_invalid_beats_unknown_field(client: TestClient) -> None:
+    payload = _payload("fnol_valid.json", "VALID-01")
+    payload["claim_type"] = "not-a-vocabulary-value"
+    payload["extra_field"] = "should-not-be-accepted"
+
+    response = client.post("/notifications", json=payload)
+
+    assert response.status_code == 400
+    body = response.json()
+    _assert_error_envelope(body, "INVALID_FIELD_VALUE")
+    _assert_invalid_field_detail(body, "claim_type")
+    assert body["code"] != "UNKNOWN_FIELD"
+
+
 def test_claim_type_outside_vocabulary_returns_400(client: TestClient) -> None:
     response = client.post("/notifications", json=_payload("fnol_edge.json", "EDGE-11"))
 
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "INVALID_FIELD_VALUE")
-    assert body["detail"]["field"] == "claim_type"
-    assert "reason" in body["detail"]
+    _assert_invalid_field_detail(body, "claim_type")
 
 
 def test_amount_three_decimals_returns_400(client: TestClient) -> None:
@@ -291,8 +345,7 @@ def test_amount_three_decimals_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "INVALID_FIELD_VALUE")
-    assert body["detail"]["field"] == "estimated_amount"
-    assert "reason" in body["detail"]
+    _assert_invalid_field_detail(body, "estimated_amount")
 
 
 def test_amount_as_json_number_returns_400(client: TestClient) -> None:
@@ -304,7 +357,7 @@ def test_amount_as_json_number_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "INVALID_FIELD_VALUE")
-    assert body["detail"]["field"] == "estimated_amount"
+    _assert_invalid_field_detail(body, "estimated_amount")
 
 
 @pytest.mark.parametrize(
@@ -325,7 +378,7 @@ def test_amount_not_greater_than_zero_returns_400(
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "INVALID_FIELD_VALUE")
-    assert body["detail"]["field"] == "estimated_amount"
+    _assert_invalid_field_detail(body, "estimated_amount")
 
 
 def test_loss_date_with_time_component_returns_400(client: TestClient) -> None:
@@ -337,7 +390,7 @@ def test_loss_date_with_time_component_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "INVALID_FIELD_VALUE")
-    assert body["detail"]["field"] == "loss_date"
+    _assert_invalid_field_detail(body, "loss_date")
 
 
 def test_empty_policy_number_returns_400(client: TestClient) -> None:
@@ -349,7 +402,7 @@ def test_empty_policy_number_returns_400(client: TestClient) -> None:
     assert response.status_code == 400
     body = response.json()
     _assert_error_envelope(body, "INVALID_FIELD_VALUE")
-    assert body["detail"]["field"] == "policy_number"
+    _assert_invalid_field_detail(body, "policy_number")
 
 
 @pytest.mark.parametrize(

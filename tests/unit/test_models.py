@@ -320,3 +320,24 @@ def test_rule_failure_is_frozen_with_distinct_types() -> None:
     assert isinstance(failure.code, ErrorCode)
     with pytest.raises(FrozenInstanceError):
         failure.__setattr__("rule", RuleId.V2)
+
+
+def test_error_code_matches_contract_section_6_5_closed_set() -> None:
+    # Literals transcribed from docs/api-contract.md section 6.5. A code added
+    # to the enum without updating the contract, or the reverse, fails here.
+    assert set(ErrorCode) == {
+        "MALFORMED_JSON",
+        "MISSING_REQUIRED_FIELD",
+        "INVALID_FIELD_VALUE",
+        "UNKNOWN_FIELD",
+        "POLICY_NOT_FOUND",
+        "LOSS_BEFORE_INCEPTION",
+        "POLICY_CANCELLED",
+        "LOSS_AFTER_EXPIRY",
+        "AMOUNT_EXCEEDS_LIMIT",
+        "TYPE_NOT_COVERED",
+        "DUPLICATE_NOTIFICATION",
+        "POLICY_MASTER_TIMEOUT",
+        "POLICY_MASTER_UNREACHABLE",
+        "POLICY_MASTER_INVALID_RESPONSE",
+    }

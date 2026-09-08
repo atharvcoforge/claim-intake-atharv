@@ -24,7 +24,7 @@ Contract section 5.2 and WI-0151 AC-2 place the existing claim_reference in the 
 
 PR: https://github.com/atharvcoforge/claim-intake-atharv/pull/1
 
-Failing commit: `07a47430fa7342c50738927d39ce0edb5ca84115` (added `tests/unit/test_gate_probe.py` with `assert False`)
+Failing commit: `07a47430fa7342c50738927d39ce0edb5ca84115` (added `tests/unit/test_gate_probe.py` with `assert False`; same commit reappears on this branch after history rewrite as `711d2b790524168f9b6ded553f114335f82486e6`)
 
 What GitHub showed:
 - Checks: workflow `checks` concluded **FAILURE** (red). Job: https://github.com/atharvcoforge/claim-intake-atharv/actions/runs/34241244625/job/102111660710

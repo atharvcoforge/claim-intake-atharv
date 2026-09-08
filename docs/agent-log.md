@@ -24,10 +24,13 @@ Contract section 5.2 and WI-0151 AC-2 place the existing claim_reference in the 
 
 PR: https://github.com/atharvcoforge/claim-intake-atharv/pull/1
 
-Failing commit: (fill after the deliberate fail probe)
+Failing commit: `07a47430fa7342c50738927d39ce0edb5ca84115` (added `tests/unit/test_gate_probe.py` with `assert False`)
 
-What GitHub showed: (fill: Checks red or green; merge Able to merge or blocked; whether the failed check is listed as required)
+What GitHub showed:
+- Checks: workflow `checks` concluded **FAILURE** (red). Job: https://github.com/atharvcoforge/claim-intake-atharv/actions/runs/34241244625/job/102111660710
+- Merge state via `gh pr view`: `mergeable=MERGEABLE`, `mergeStateStatus=UNSTABLE` (Able to merge; not blocked)
+- The failed check is listed on the PR rollup as `checks`, but branch-protection / ruleset APIs returned 403 on this private free-plan repo, so the check is **not** enforced as a required status that prevents merge
 
-Blocked: (yes / no)
+Blocked: no
 
 If no: branch protection does not require the checks workflow, so a failing check marks the PR but does not block merge. That is a repository configuration finding, not something to work around in code.

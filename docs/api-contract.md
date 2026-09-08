@@ -409,3 +409,15 @@ A failure that is not in this list is a defect in the service, not an
 unspecified condition the caller must handle. Adding a code is a
 compatible change (section 1). Changing the status mapped to an
 existing code is not.
+
+### 6.6 Routing-level responses
+
+The codes in section 6.5 describe refusals of a notification submission
+on `POST /notifications`. A request that does not reach that surface —
+an undefined path, or a method other than `POST` on `/notifications` —
+is answered by the HTTP framework with its ordinary status
+(`404 Not Found`, `405 Method Not Allowed`). Those responses are not
+error codes in the closed set above and do not use the section 5
+envelope. Inventing a portal-branchable code for them would grow the
+set callers must handle for a condition that is not a notification
+refusal.

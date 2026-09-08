@@ -1,4 +1,73 @@
-# Agent decision log (Day 3)
+# Agent decision log
+
+## Day 4 — HTTP boundary
+
+### Accepted: section 6.1 precedence over pydantic error order
+
+What it produced:
+`_map_validation_error` reports the first interpretation failure in section 6.1
+table order: `MISSING_REQUIRED_FIELD`, then `INVALID_FIELD_VALUE`, then
+`UNKNOWN_FIELD`. A body that is both missing a required field and carrying an
+unknown field returns `MISSING_REQUIRED_FIELD`.
+
+Decision: accepted.
+
+Reason:
+Contract section 6.1 lists the interpretation codes in that order. Section 4.1
+already establishes that when more than one rule could fail, the contract fixes
+which code the caller sees. The same reasoning applies at the interpretation
+boundary. Rejected: returning whichever error pydantic listed first. That order
+is a library detail the portal cannot rely on, and it would make the response
+depend on field declaration order rather than on the contract.
+
+### Accepted: non-object JSON body is MALFORMED_JSON
+
+What it produced:
+A body that parses as JSON but is not an object (a list, a string, a number)
+returns `MALFORMED_JSON` at status `400`.
+
+Decision: accepted.
+
+Reason:
+Section 5.2 says the caller may rely on `field` for `INVALID_FIELD_VALUE`. A
+non-object body has no field to name. Inventing a field name the caller never
+sent would put a lie in `detail`. `MALFORMED_JSON` is the code whose `detail`
+guarantees no keys, which matches the situation. Rejected: inventing
+`INVALID_FIELD_VALUE` with a synthetic `field`.
+
+### Accepted: document routing-level responses in section 6.6
+
+What it produced:
+Contract section 6.6 states that a 404 on an undefined path or a 405 on a wrong
+method is the framework's ordinary response, not a code in the 6.5 closed set
+and not the section 5 envelope.
+
+Decision: accepted.
+
+Reason:
+The acceptance criterion requires every response the service can produce to
+appear in section 6. Sections 1–3 are fixed; section 6 is editable. Naming the
+routing responses as outside the closed set meets the criterion without growing
+the set of codes the portal branches on. Rejected: inventing an
+`UNKNOWN_ENDPOINT` code. That would be a compatible change under section 1, but
+it would force every caller to handle a condition that is not a notification
+refusal.
+
+### Accepted: dependency detail is built, not forwarded
+
+What it produced:
+`PolicyLookupFailed` maps to 504 / 503 / 502 with
+`detail == {"dependency": "policy_master"}`. The exception's `policy_number` is
+not included.
+
+Decision: accepted.
+
+Reason:
+Section 5.2 forbids caller field names on dependency failures. Including
+`policy_number` would imply a defect in the submission when the dependency did
+not answer. Rejected: dumping the exception attributes into `detail`.
+
+## Day 3
 
 ## Accepted: keep V-6 out of POLICY_RULES
 

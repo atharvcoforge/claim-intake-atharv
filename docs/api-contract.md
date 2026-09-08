@@ -243,7 +243,7 @@ The three examples below are refusals the service produces through
 different handling paths. Their `detail` objects do not share the same
 keys.
 
-**Example 1 — validation rule failure.** A loss on the day cancellation
+**Example 1: validation rule failure.** A loss on the day cancellation
 takes effect. Rule V-7 fails.
 
 ```
@@ -261,7 +261,7 @@ Content-Type: application/json
 }
 ```
 
-**Example 2 — request the service could not interpret.** The portal
+**Example 2: request the service could not interpret.** The portal
 omitted a required field. Section 2.4 applies; no rule in section 4 is
 evaluated.
 
@@ -278,7 +278,7 @@ Content-Type: application/json
 }
 ```
 
-**Example 3 — policy master did not answer.** The service attempted to
+**Example 3: policy master did not answer.** The service attempted to
 read the policy master for rule V-1 and the dependency timed out. The
 notification was not evaluated against business rules.
 
@@ -306,7 +306,7 @@ in section 4. Policy master dependency failures are evaluated when the
 service attempts V-1. They are distinct from V-1 itself: a policy that
 does not exist is a 422; a policy master that does not answer is a 5xx.
 
-### 6.1 Request interpretation — 400
+### 6.1 Request interpretation (400)
 
 The caller's code is wrong. No rule in section 4 is evaluated. No
 notification is recorded.
@@ -335,7 +335,7 @@ service does not coerce either case onto a two-place decimal, because a
 JSON number has no scale to preserve and a mis-scaled string is not the
 amount the caller sent.
 
-### 6.2 Validation rules — 409 and 422
+### 6.2 Validation rules (409 and 422)
 
 The request was interpreted. The content is not admissible, or it
 conflicts with a recorded notification. The mapping is the Status
@@ -360,7 +360,7 @@ only to a `claim_type` already in the section 2.3 vocabulary. A string
 outside that vocabulary is `INVALID_FIELD_VALUE` under section 6.1 and
 never reaches this table.
 
-### 6.3 Policy master dependency — 5xx
+### 6.3 Policy master dependency (5xx)
 
 The service could not complete V-1 because the policy master did not
 return a usable answer. These three conditions are not the caller's
@@ -413,8 +413,8 @@ existing code is not.
 ### 6.6 Routing-level responses
 
 The codes in section 6.5 describe refusals of a notification submission
-on `POST /notifications`. A request that does not reach that surface —
-an undefined path, or a method other than `POST` on `/notifications` —
+on `POST /notifications`. A request that does not reach that surface
+(an undefined path, or a method other than `POST` on `/notifications`)
 is answered by the HTTP framework with its ordinary status
 (`404 Not Found`, `405 Method Not Allowed`). Those responses are not
 error codes in the closed set above and do not use the section 5

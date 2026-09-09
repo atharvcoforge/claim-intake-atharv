@@ -148,7 +148,55 @@ def _map_validation_error(exc: ValidationError) -> JSONResponse:
     )
 
 
-@app.post("/notifications")
+# OpenAPI only: the handler reads a raw Request so section 6.1 mapping stays
+# under our control (FastAPI's default body parse would emit its own 422).
+# Without this block, /docs shows "No parameters" and nothing to edit.
+_NOTIFICATION_REQUEST_BODY = {
+    "required": True,
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "required": [
+                    "policy_number",
+                    "loss_date",
+                    "claim_type",
+                    "estimated_amount",
+                ],
+                "properties": {
+                    "policy_number": {"type": "string"},
+                    "loss_date": {"type": "string", "format": "date"},
+                    "claim_type": {
+                        "type": "string",
+                        "enum": [
+                            "collision",
+                            "theft",
+                            "glass",
+                            "liability",
+                            "weather",
+                        ],
+                    },
+                    "estimated_amount": {
+                        "type": "string",
+                        "description": "USD with exactly two decimal places, as a JSON string.",
+                    },
+                    "description": {"type": "string", "nullable": True},
+                },
+                "additionalProperties": False,
+            },
+            "example": {
+                "policy_number": "MOT-4471",
+                "loss_date": "2026-04-02",
+                "claim_type": "collision",
+                "estimated_amount": "4200.00",
+                "description": "Rear ended at a junction.",
+            },
+        }
+    },
+}
+
+
+@app.post("/notifications", openapi_extra={"requestBody": _NOTIFICATION_REQUEST_BODY})
 async def create_notification(
     request: Request,
     policy_client: Annotated[PolicyClient, Depends(get_policy_client)],

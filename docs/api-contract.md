@@ -47,7 +47,7 @@ Which of these are admissible on a given notification depends on the product the
 
 ### 2.4 Well formed against acceptable
 
-A request that cannot be interpreted is refused with status `400`. This means the body was not valid JSON, a required field was absent, a field carried a value of the wrong type, or a field was present that this contract does not define. The caller's code is wrong.
+A request that cannot be interpreted is refused with status `400`. This means the body was not valid JSON, the body was valid JSON that is not an object, a required field was absent, a field carried a value of the wrong type, or a field was present that this contract does not define. The caller's code is wrong.
 
 A request that was interpreted and whose content is not admissible is refused with status `422`. The caller's data is wrong, and a person needs to see the reason.
 
@@ -225,10 +225,11 @@ caller may rely on `code` to distinguish which interpretation check
 failed. For `MISSING_REQUIRED_FIELD` and `UNKNOWN_FIELD`, the caller may
 rely on `field`, naming the body field at issue. For
 `INVALID_FIELD_VALUE`, the caller may rely on `field` and `reason`. For
-`MALFORMED_JSON`, the caller may not rely on any key in `detail`; the
-body could not be read as JSON and no field name is available. The
-caller may not rely on policy master fields appearing in `detail` for
-these codes; the request was not admissible for evaluation.
+`MALFORMED_JSON`, the caller may not rely on any key in `detail`; no
+field name is available (the body was not valid JSON, or it was valid
+JSON that is not an object). The caller may not rely on policy master
+fields appearing in `detail` for these codes; the request was not
+admissible for evaluation.
 
 **Policy master dependency failures** (status in the `5xx` family,
 section 6). The caller may rely on `dependency`, which is always
@@ -243,7 +244,7 @@ The three examples below are refusals the service produces through
 different handling paths. Their `detail` objects do not share the same
 keys.
 
-**Example 1 — validation rule failure.** A loss on the day cancellation
+**Example 1: validation rule failure.** A loss on the day cancellation
 takes effect. Rule V-7 fails.
 
 ```
@@ -261,7 +262,7 @@ Content-Type: application/json
 }
 ```
 
-**Example 2 — request the service could not interpret.** The portal
+**Example 2: request the service could not interpret.** The portal
 omitted a required field. Section 2.4 applies; no rule in section 4 is
 evaluated.
 
@@ -278,7 +279,7 @@ Content-Type: application/json
 }
 ```
 
-**Example 3 — policy master did not answer.** The service attempted to
+**Example 3: policy master did not answer.** The service attempted to
 read the policy master for rule V-1 and the dependency timed out. The
 notification was not evaluated against business rules.
 
@@ -306,17 +307,32 @@ in section 4. Policy master dependency failures are evaluated when the
 service attempts V-1. They are distinct from V-1 itself: a policy that
 does not exist is a 422; a policy master that does not answer is a 5xx.
 
-### 6.1 Request interpretation — 400
+### 6.1 Request interpretation (400)
 
 The caller's code is wrong. No rule in section 4 is evaluated. No
 notification is recorded.
 
 | Condition | Code | Status |
 | --- | --- | ---: |
-| Body is not valid JSON | `MALFORMED_JSON` | 400 |
+| Body is not valid JSON, or the body is valid JSON that is not an object | `MALFORMED_JSON` | 400 |
 | A required field is absent | `MISSING_REQUIRED_FIELD` | 400 |
 | A field carries a value of the wrong type, or a value that does not satisfy the type constraints in section 2.2 | `INVALID_FIELD_VALUE` | 400 |
 | A field is present that section 2.2 does not define | `UNKNOWN_FIELD` | 400 |
+
+Where several interpretation checks would fail on the same body, the
+order of rows in this table is the only authority on which code the
+caller sees: `MISSING_REQUIRED_FIELD` before `INVALID_FIELD_VALUE`
+before `UNKNOWN_FIELD`. A body that omits a required field and also
+carries an undefined key returns `MISSING_REQUIRED_FIELD`. The table
+order is not a library detail; two handlers that both claim to follow
+this section must agree on that code.
+
+A JSON array, string, number, boolean, or null is valid JSON and still
+`MALFORMED_JSON`. Section 2.2 requires an object with named fields.
+Section 5.2 promises a `field` key for `INVALID_FIELD_VALUE` and
+`UNKNOWN_FIELD`; a non-object body has no field to name, so those codes
+do not apply. `MALFORMED_JSON` is the code whose `detail` guarantees no
+keys.
 
 `INVALID_FIELD_VALUE` is the code for a named field whose value the
 service cannot treat as the type section 2.2 requires. That includes a
@@ -335,7 +351,7 @@ service does not coerce either case onto a two-place decimal, because a
 JSON number has no scale to preserve and a mis-scaled string is not the
 amount the caller sent.
 
-### 6.2 Validation rules — 409 and 422
+### 6.2 Validation rules (409 and 422)
 
 The request was interpreted. The content is not admissible, or it
 conflicts with a recorded notification. The mapping is the Status
@@ -360,7 +376,7 @@ only to a `claim_type` already in the section 2.3 vocabulary. A string
 outside that vocabulary is `INVALID_FIELD_VALUE` under section 6.1 and
 never reaches this table.
 
-### 6.3 Policy master dependency — 5xx
+### 6.3 Policy master dependency (5xx)
 
 The service could not complete V-1 because the policy master did not
 return a usable answer. These three conditions are not the caller's
@@ -409,3 +425,15 @@ A failure that is not in this list is a defect in the service, not an
 unspecified condition the caller must handle. Adding a code is a
 compatible change (section 1). Changing the status mapped to an
 existing code is not.
+
+### 6.6 Routing-level responses
+
+The codes in section 6.5 describe refusals of a notification submission
+on `POST /notifications`. A request that does not reach that surface
+(an undefined path, or a method other than `POST` on `/notifications`)
+is answered by the HTTP framework with its ordinary status
+(`404 Not Found`, `405 Method Not Allowed`). Those responses are not
+error codes in the closed set above and do not use the section 5
+envelope. Inventing a portal-branchable code for them would grow the
+set callers must handle for a condition that is not a notification
+refusal.

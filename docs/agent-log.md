@@ -13,18 +13,18 @@ unknown field returns `MISSING_REQUIRED_FIELD`.
 Decision: accepted.
 
 Reason:
-Section 6.1 lists those interpretation codes in that order. Section 4.1 already
-says that when more than one rule could fail, the contract picks which code the
-caller sees. The same idea applies at the interpretation boundary. We rejected
-“return whatever pydantic listed first.” That order is a library detail the portal
-cannot rely on, and it would make the response hang on field declaration order
-instead of the contract.
+Section 6.1 lists those interpretation codes in that order and now states that
+row order is the authority when several interpretation checks fail (same idea
+as section 4.1 for rules). We rejected “return whatever pydantic listed first.”
+That order is a library detail the portal cannot rely on, and it would make the
+response hang on field declaration order instead of the contract.
 
 ### Accepted: non-object JSON body is MALFORMED_JSON
 
 What it produced:
 A body that parses as JSON but is not an object (a list, a string, a number)
-returns `MALFORMED_JSON` at status `400`.
+returns `MALFORMED_JSON` at status `400`. Section 6.1 names this case next to
+“not valid JSON.”
 
 Decision: accepted.
 

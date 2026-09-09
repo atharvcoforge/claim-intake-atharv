@@ -52,6 +52,6 @@ Checked every refusal `NotificationRequest` and `Policy` produce against contrac
 | `estimated_amount` wrong scale / ≤ 0 (EDGE-12) | `INVALID_FIELD_VALUE` | 400 |
 | `loss_date` with time component or `datetime` | `INVALID_FIELD_VALUE` | 400 |
 
-`MALFORMED_JSON` is not a model outcome; it belongs at the HTTP boundary when the body cannot be read as JSON.
+`MALFORMED_JSON` is not a model outcome; it belongs at the HTTP boundary when the body cannot be read as JSON, or when it is valid JSON that is not an object (section 6.1).
 
 Nothing was missing from section 6. No codes or statuses were added. How checked: enumerated the validators and `extra="forbid"` / `Field(min_length=1)` / `ClaimType` constraints in `src/claims/models.py`, mapped each to section 6.1, and confirmed the closed set in 6.5 already names every code those refusals become.

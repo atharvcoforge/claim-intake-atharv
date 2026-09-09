@@ -209,8 +209,7 @@ async def create_notification(
         return _error_response(ErrorCode.MALFORMED_JSON, {})
 
     if not isinstance(body, dict):
-        # Section 5.2: INVALID_FIELD_VALUE guarantees a field key. A non-object
-        # body has no field to name, so it is MALFORMED_JSON.
+        # Section 6.1: valid JSON that is not an object is MALFORMED_JSON.
         return _error_response(ErrorCode.MALFORMED_JSON, {})
 
     try:

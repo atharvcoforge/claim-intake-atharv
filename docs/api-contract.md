@@ -47,7 +47,7 @@ Which of these are admissible on a given notification depends on the product the
 
 ### 2.4 Well formed against acceptable
 
-A request that cannot be interpreted is refused with status `400`. This means the body was not valid JSON, a required field was absent, a field carried a value of the wrong type, or a field was present that this contract does not define. The caller's code is wrong.
+A request that cannot be interpreted is refused with status `400`. This means the body was not valid JSON, the body was valid JSON that is not an object, a required field was absent, a field carried a value of the wrong type, or a field was present that this contract does not define. The caller's code is wrong.
 
 A request that was interpreted and whose content is not admissible is refused with status `422`. The caller's data is wrong, and a person needs to see the reason.
 
@@ -225,10 +225,11 @@ caller may rely on `code` to distinguish which interpretation check
 failed. For `MISSING_REQUIRED_FIELD` and `UNKNOWN_FIELD`, the caller may
 rely on `field`, naming the body field at issue. For
 `INVALID_FIELD_VALUE`, the caller may rely on `field` and `reason`. For
-`MALFORMED_JSON`, the caller may not rely on any key in `detail`; the
-body could not be read as JSON and no field name is available. The
-caller may not rely on policy master fields appearing in `detail` for
-these codes; the request was not admissible for evaluation.
+`MALFORMED_JSON`, the caller may not rely on any key in `detail`; no
+field name is available (the body was not valid JSON, or it was valid
+JSON that is not an object). The caller may not rely on policy master
+fields appearing in `detail` for these codes; the request was not
+admissible for evaluation.
 
 **Policy master dependency failures** (status in the `5xx` family,
 section 6). The caller may rely on `dependency`, which is always
@@ -313,10 +314,25 @@ notification is recorded.
 
 | Condition | Code | Status |
 | --- | --- | ---: |
-| Body is not valid JSON | `MALFORMED_JSON` | 400 |
+| Body is not valid JSON, or the body is valid JSON that is not an object | `MALFORMED_JSON` | 400 |
 | A required field is absent | `MISSING_REQUIRED_FIELD` | 400 |
 | A field carries a value of the wrong type, or a value that does not satisfy the type constraints in section 2.2 | `INVALID_FIELD_VALUE` | 400 |
 | A field is present that section 2.2 does not define | `UNKNOWN_FIELD` | 400 |
+
+Where several interpretation checks would fail on the same body, the
+order of rows in this table is the only authority on which code the
+caller sees: `MISSING_REQUIRED_FIELD` before `INVALID_FIELD_VALUE`
+before `UNKNOWN_FIELD`. A body that omits a required field and also
+carries an undefined key returns `MISSING_REQUIRED_FIELD`. The table
+order is not a library detail; two handlers that both claim to follow
+this section must agree on that code.
+
+A JSON array, string, number, boolean, or null is valid JSON and still
+`MALFORMED_JSON`. Section 2.2 requires an object with named fields.
+Section 5.2 promises a `field` key for `INVALID_FIELD_VALUE` and
+`UNKNOWN_FIELD`; a non-object body has no field to name, so those codes
+do not apply. `MALFORMED_JSON` is the code whose `detail` guarantees no
+keys.
 
 `INVALID_FIELD_VALUE` is the code for a named field whose value the
 service cannot treat as the type section 2.2 requires. That includes a
